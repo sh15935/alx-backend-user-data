@@ -1,66 +1,90 @@
 #!/usr/bin/env python3
-"""DB module
 """
+DB class
+"""
+
 from sqlalchemy import create_engine
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.orm.session import Session
-from user import Base, User
 from sqlalchemy.orm.exc import NoResultFound
-from sqlalchemy.exc import InvalidRequestError
+from typing import TypeVar
+from user import Base, User  # Assuming there is an import for the User model
+
+DATA = ['id', 'email', 'hashed_password', 'session_id', 'reset_token']
 
 
 class DB:
-    """DB class
-    """
+    """Database class for managing user data"""
 
-    def __init__(self) -> None:
-        """Initialize a new DB instance
-        """
+    def __init__(self):
+        """Initialize the DB class"""
+        # Create a SQLite database engine
         self._engine = create_engine("sqlite:///a.db", echo=False)
+
+        # Drop and create all tables defined in the Base class
         Base.metadata.drop_all(self._engine)
         Base.metadata.create_all(self._engine)
+
+        # Initialize the session to None
         self.__session = None
 
     @property
-    def _session(self) -> Session:
-        """Memoized session object
-        """
+    def _session(self):
+        """Property to get the database session"""
         if self.__session is None:
+            # Create a session if it doesn't exist
             DBSession = sessionmaker(bind=self._engine)
             self.__session = DBSession()
         return self.__session
 
     def add_user(self, email: str, hashed_password: str) -> User:
-        """ saves a user to the database and returns a user object """
+        """Add user to the database
+
+        Args:
+            email (string): Email of the user
+            hashed_password (string): Hashed password of the user
+        Returns:
+            User: User object created
+        """
+        if not email or not hashed_password:
+            return  # If either email or hashed_password is missing, do nothing
+
+        # Create a new User instance
         user = User(email=email, hashed_password=hashed_password)
-        self._session.add(user)
-        self._session.commit()
+
+        # Add the user to the session and commit the changes
+        session = self._session
+        session.add(user)
+        session.commit()
         return user
 
     def find_user_by(self, **kwargs) -> User:
-        """takes in arbitrary keyword arguments and returns the
-        first row found in the users table as filtered by the method’s
-        input arguments
+        """Find user by specified arguments
+
+        Returns:
+            User: User found or raises NoResultFound if not found
         """
-        if kwargs is None:
-            raise InvalidRequestError
-        user = self.__session.query(User).filter_by(**kwargs).first()
-        if user is None:
+        user = self._session.query(User).filter_by(**kwargs).first()
+        if not user:
             raise NoResultFound
         return user
 
     def update_user(self, user_id: int, **kwargs) -> None:
-        """update the user’s attributes as passed in the method’s
-           arguments then commit changes to the database.
+        """Update user by ID
+
+        Args:
+            user_id (int): ID of the user to be updated
         """
-        if kwargs:
-            try:
-                user = self.find_user_by(id=user_id)
-                for key, value in kwargs.items():
-                    if not hasattr(User, key):
-                        raise ValueError
-                    setattr(user, key, value)
-                    self._session.commit()
-            except NoResultFound:
-                pass
+        # Find the user by ID
+        user = self.find_user_by(id=user_id)
+
+        # Update user attributes based on provided kwargs
+        for key, val in kwargs.items():
+            if key not in DATA:
+                raise ValueError(f"Invalid key: {key}")
+            setattr(user, key, val)
+
+        # Commit the changes to the database
+        self._session.commit()
+        return None
